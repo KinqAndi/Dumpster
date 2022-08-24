@@ -1,0 +1,12 @@
+{
+	"name": "dumpster",
+	"tree": {
+		"$className": "DataModel",
+		"ReplicatedStorage": {
+			"$className": "ReplicatedStorage",
+			"KinqUtil": {
+				"$path": "modules"
+			}
+		}
+	}
+}
