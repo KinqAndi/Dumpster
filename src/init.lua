@@ -34,10 +34,6 @@ function Dumpster:Add(object: any, cleanUpIdentifier: string?, customCleanupMeth
 			return
 		end
 
-		if self:_isAPromise(object) then
-			self:_initPromise(object)
-		end
-
 		self._identifierObjects[cleanUpIdentifier] = {object = object, method = cleanUpMethod}
 
 		return object
@@ -45,11 +41,29 @@ function Dumpster:Add(object: any, cleanUpIdentifier: string?, customCleanupMeth
 
 	table.insert(self._objects, {object = object, method = cleanUpMethod})
 
-	if self:_isAPromise(object) then
-		self:_initPromise(object)
+	return object
+end
+
+function Dumpster:AddPromise(promise, cleanUpIdentifier: string?)
+	if not self:_isAPromise(promise) then
+		self:_sendWarn("This is not a promise!")
+		return
 	end
 
-	return object
+	self:_initPromise(promise)
+
+	local cleanUpMethod = "cancel"
+	
+	if cleanUpIdentifier then
+		if not self:_cleanUpIdentifierAvailable(cleanUpIdentifier) then
+			return
+		end
+
+		self._identifierObjects[cleanUpIdentifier] = {object = promise, method = cleanUpMethod}
+		return
+	end
+	
+	table.insert(self._objects, {object = promise, method = cleanUpMethod})
 end
 
 function Dumpster:Extend()
@@ -284,8 +298,6 @@ function Dumpster:_getCleanUpMethod(object, customCleanupMethod): string?
 			return "Clean"
 		elseif typeof(object.Disconnect) == "function" then
 			return "Disconnect"
-		elseif self:_isAPromise(object) then
-			return "cancel"
 		end
 
 		return
@@ -427,12 +439,18 @@ function Dumpster:_isAPromise(object)
 		return
 	end
 
-	local hasCancel = type(object.cancel) == "function"
-	local hasGetStatus = type(object.getStatus) == "function"
-	local hasFinally = type(object.finally) == "function"
-	local hasAndThen = type(object.andThen) == "function"
+	local s, e = pcall(function()
+		local hasCancel = type(object.cancel) == "function"
+		local hasGetStatus = type(object.getStatus) == "function"
+		local hasFinally = type(object.finally) == "function"
+		local hasAndThen = type(object.andThen) == "function"
+	end)
 
-	return hasCancel and hasGetStatus and hasFinally and hasAndThen
+	if not s then
+		return false
+	end
+
+	return true
 end
 
 function Dumpster:_initPromise(object)
