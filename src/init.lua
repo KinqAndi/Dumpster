@@ -1,277 +1,461 @@
+local RunService = game:GetService("RunService")
+
 local Dumpster = {}
 Dumpster.__index = Dumpster
 
-local RunService = game:GetService('RunService')
-
---Constructor for Dumpster 
 function Dumpster.new()
 	local self = setmetatable({
-		_dictionaryInstances = {},
-		_dictionaryFunctions = {},
-		_instances = {},
-		_functions = {},
-		_subDumpsters = {},
-		_bindNames = {},
+		_objects = {},
+		_identifierObjects = {},
+		_bindedNames = {},
+
+		_functionCleanUp = newproxy(),
+		_threadCleanUp = newproxy(),
 	}, Dumpster)
 
 	return self
 end
 
---Extends the class into a subclass, gets cleaned up on super:Destroy()
-function Dumpster:Extend()
-	local subDumpster = self.new()
-	table.insert(self._subDumpsters, subDumpster)
-	return subDumpster
-end
-
---Add an object to the dumpster
-function Dumpster:Add(object: any, cleanUpIdentifier: string?): ()
-	assert(object ~= nil, "Object passed for cleanup was nil!")
-
-	if cleanUpIdentifier and typeof(cleanUpIdentifier) ~= "string" then
-		self:_sendError("Cleanup identifier must be a string!")
+function Dumpster:Add(object: any, cleanUpIdentifier: string?, customCleanupMethod: string?) 
+	if self._isCleaning or self._destroyed then
+		self:_sendWarn("Cannot add item for cleanup when dumpster is being cleaned up/destroyed")
 		return
 	end
 
-	if typeof(object) == "function" then
-		if cleanUpIdentifier then
-			if self._dictionaryFunctions[cleanUpIdentifier] then
-				warn("A function with ID", cleanUpIdentifier, "already exists!")
-				return
-			end
+	local cleanUpMethod = self:_getCleanUpMethod(object, customCleanupMethod)
 
-			self._dictionaryFunctions[cleanUpIdentifier] = object
-			return
-		end
-
-		table.insert(self._functions, object)
+	if not cleanUpMethod then
+		self:_sendWarn(object, "was not added for cleanup, could not find a cleanup method!")
 		return
 	end
 
 	if cleanUpIdentifier then
-		if self._dictionaryInstances[cleanUpIdentifier] then
-			warn("A cleanup method with ID", cleanUpIdentifier, "already exists!")
+		if not self:_cleanUpIdentifierAvailable(cleanUpIdentifier) then
 			return
 		end
 
-		self._dictionaryInstances[cleanUpIdentifier] = object
+		if self:_isAPromise(object) then
+			self:_initPromise(object)
+		end
+
+		self._identifierObjects[cleanUpIdentifier] = {object = object, method = cleanUpMethod}
+
+		return object
 	end
 
-	table.insert(self._instances, object)
+	table.insert(self._objects, {object = object, method = cleanUpMethod})
+
+	if self:_isAPromise(object) then
+		self:_initPromise(object)
+	end
+
+	return object
 end
 
---Connect method to dumpster
-function Dumpster:Connect(signal: RBXScriptSignal, funcCallback: ()->()): ()
-	if not signal or not funcCallback then
-		self:_sendError("Two arguments must be provided in the Connect method")
-		return
-	end
+function Dumpster:Extend()
+	local subDumpster = self.new()
+	self:Add(subDumpster)
 
-	if typeof(signal) ~= "RBXScriptSignal" then
-		self:_sendError("First argument of Connect must be of type: RBXScriptSignal")
-		return
-	end
-
-	if typeof(funcCallback) ~= "function" then
-		self:_sendError("Second argument of Connect must be of type: function")
-		return
-	end
-
-	self:Add(signal:Connect(funcCallback))
+	return subDumpster
 end
 
---Bind a function to render stepped with a render priority
+function Dumpster:Construct(object: string | table, ...)
+	if typeof(object) == "string" then
+		local object = Instance.new(object)
+		self:Add(object, ...)
+
+		return object
+	elseif typeof(object) == "table" then
+		if object.new and typeof(object.new) == "function" then
+			local class = object.new(...)
+			self:Add(class)
+
+			return class
+		elseif object.create and typeof(object.create) == "function" then
+			local class = object.create(...)
+			self:Add(class)
+
+			return class
+		else
+			self:_sendWarn("Could not find a constructor class, therefore nothing was constructed!")
+		end
+
+		return
+	end
+
+	self:_sendWarn("Object could not be constructed!")
+end
+
+function Dumpster:Clone(item: Instance)
+	if typeof(item) ~= "Instance" then
+		self:_sendWarn("Only instances can be cloned")
+		return
+	end
+
+	local item = item:Clone()
+	self:Add(item)
+
+	return item
+end
+
 function Dumpster:BindToRenderStep(name: string, priority: number, func: (dt: number)->(any)): ()
 	assert(name ~= nil and typeof(name) == "string", "Name must be a string!")
 	assert(priority ~= nil and typeof(priority) == "number", "Priority must be a number!")
 	assert(func ~= nil and typeof(func) == "function", "Must have a callback function!")
 
-	game:GetService('RunService'):BindToRenderStep(name, priority, func)
-	table.insert(self._bindNames, name)
+	if self._isCleaning or self._destroyed then
+		self:_sendWarn("Cannot bind function to render step when dumpster is being cleaned up/destroyed")
+		return
+	end
+
+	if table.find(self._bindedNames, name) then
+		self:_sendWarn("The name you're trying to bind the function to render stepped to already exists, please use a unique name!")
+		return
+	end
+
+	RunService:BindToRenderStep(name, priority, func)
+
+	table.insert(self._bindedNames, name)
 end
 
---Create a new instance and add it to the dumpster for clean up once Clean() or Destroy() or Remove()
---is called on the identifier
-function Dumpster:NewInstance(instanceType: string, cleanUpIdentifier: string?): Instance
-	if not instanceType or typeof(instanceType) ~= "string" then
-		self:_sendError("Instance Type must be a string!")
+function Dumpster:UnbindFromRenderStep(name: string)
+	local foundAt: number? = table.find(self._bindedNames, name)
+
+	if not foundAt then
+		self:_sendWarn("No Bind to render step was found with name:", name)
+		return
 	end
 
-	local newInstance = Instance.new(instanceType)
-	self:Add(newInstance, cleanUpIdentifier)
+	if self._isCleaning or self._destroyed then
+		self:_sendWarn("Cannot unbind from renderstepped when dumpster is being cleaned up/destroyed")
+		return
+	end
 
-	return newInstance
+	table.remove(self._bindedNames, foundAt)
+	RunService:UnbindFromRenderStep(name)
 end
 
---Clones an instance and adds it to the dumpster for cleanup
-function Dumpster:Clone(instance: Instance, cleanUpIdentifier: string?): Instance
-	if not instance then
-		self:_sendError("An instance must be provided for it to be cloned!")
+function Dumpster:Connect(signal: RBXScriptSignal, connectFunction)
+	if typeof(signal) ~= "RBXScriptSignal" then
+		self:_sendWarn("Attempted to Connect with object not being of type RBXScriptSignal")
 		return
 	end
 
-	if typeof(instance) ~= "Instance" then
-		self:_sendError("Instance provided to clone was not an instance!")
+	if typeof(connectFunction) ~= "function" then
+		self:_sendWarn("attempted to Connect, argument 2 expects function but got", typeof(connectFunction))
 		return
 	end
 
-	local newInstance: Instance = instance:Clone()
+	if self._isCleaning or self._destroyed then
+		self:_sendWarn("Cannot call method when dumpster is being cleaned up/destroyed")
+		return
+	end
 
-	self:Add(newInstance, cleanUpIdentifier)
-
-	return newInstance
+	self:Add(signal:Connect(connectFunction))
 end
 
---Cleans up object with given identifier
-function Dumpster:Remove(identifier: string)
-	if not identifier then
-		self:_sendError("An identifier must be added in this method!")
+function Dumpster:AttachTo(item: any)
+	local itemType = typeof(item)
+
+	if self._isCleaning or self._destroyed then
+		self:_sendWarn("Cannot called AttachTo when dumpster is being cleaned up/destroyed")
 		return
 	end
 
-	local cleaned = false
-	
-	local bindAt: number = table.find(self._bindNames, identifier)
-	
-	if bindAt then
-		RunService:UnbindFromRenderStep(identifier)
-		table.remove(self._bindNames, bindAt)
-		cleaned = true
-	end
-	
-	if self._dictionaryInstances[identifier] then
-		self._clean(self._dictionaryInstances[identifier])
-		self._dictionaryInstances[identifier] = nil
-		cleaned = true
-	end
+	if itemType == "Instance" and (item:IsA("Tween") or item:IsA("TweenBase")) then
+		if item.TweenInfo.RepeatCount < 0 then
+			local warnString = "Tried to attach Dumpster to Tween with RepeatCount < 0\n"
+			warnString = warnString .. "This tween will loop infinitely until Destroy() is called\n"
+			warnString = warnString .. "THEREFORE, it is attached to .Destroying instead of .Completed"
 
-	if self._dictionaryFunctions[identifier] then
-		cleaned = true
-		self._dictionaryFunctions[identifier] = nil
-	end
+			self:_sendWarn(warnString)
 
-	if not cleaned then
-		warn("Could not find instance to remove with identifier:", identifier)
+			self:Add(item.Destroying:Connect(function()
+				self:Destroy()
+			end))
+		else
+			self:Add(item.Completed:Connect(function()
+				self:Destroy()
+			end))
+		end
+
 		return
-	end
-end
+	elseif itemType == "Instance" and item:IsA("AnimationTrack") then
+		if item.Looped then
+			local warnString = "Tried to attach Dumpster to AnimationTrack with Looped set to true\n"
+			warnString = warnString .. "This animation will loop infinitely until Destroy() is called\n"
+			warnString = warnString .. "THEREFORE, it is attached to .Destroying instead of .Stopped"
 
---You can attach a dumpster to an object such as Tween/AnimationTrack/Instance
---When object is completed/destroyed, Dumpster will automatically clean up
-function Dumpster:AttachTo(item: any): ()
-	if not item then
-		self:_sendError("An Item must be provided for the dumpster to be attached to!")
-		return
-	end
-	
-	table.insert(self._instances, item)
+			self:_sendWarn(warnString)
 
-	if typeof(item) == "Tween" then
-		table.insert(self._instances, item.Completed:Connect(function()
-			self:Destroy()
-		end))
-		return
-	elseif typeof(item) == "AnimationTrack" then
-		table.insert(self._instances, item.Stopped:Connect(function()
-			self:Destroy()
-		end))
+			self:Add(item.Destroying:Connect(function()
+				self:Destroy()
+			end))
+		else
+			self:Add(item.Stopped:Connect(function()
+				self:Destroy()
+			end))
+		end
+
 		return
 	end
 
-	if not item:IsDescendantOf(game) then
-		self:_sendError("Instance is not a member of the game hiearchy, cannot be attached!")
-		return
-	end
-
-	table.insert(self._instances, item.AncestryChanged:Connect(function(child: Instance, newParent: Instance)
-		if newParent then
+	if itemType == "Instance" then
+		if not item:IsDescendantOf(game) then
+			self:_sendError("Instance is not a child of the game hiearchy, cannot be attached!")
 			return
 		end
 
-		self:Destroy()
-	end))
+		self:Add(item.Destroying:Connect(function()
+			self:Destroy()
+		end))
+
+		return
+	end
+
+	self:_sendWarn("Item was not attached to Dumpster, allowed objects: Instance | Tween | TweenBase | AnimationTrack")
+
+	return
 end
 
---Alias for Destroy()
-function Dumpster:Clean(): ()
+function Dumpster:Remove(cleanObject: any, dontCallCleanMethod: boolean?): any?
+	if self._isCleaning or self._destroyed then
+		self:_sendWarn("Cannot remove item when dumpster is being cleaned up/destroyed")
+		return
+	end
+
+	if typeof(cleanObject) == "string" then
+		if not self._identifierObjects[cleanObject] then
+			if table.find(self._bindedNames, cleanObject) then
+				self:UnbindFromRenderStep(cleanObject)
+				return
+			end
+
+			self:_sendWarn("Could find an object to clean with ID:", cleanObject)
+			return
+		end
+
+		local object = self._identifierObjects[cleanObject].object
+		local method = self._identifierObjects[cleanObject].method
+
+		if dontCallCleanMethod then
+			self._identifierObjects[cleanObject] = nil
+			return object
+		else
+			self:_cleanObject(object, method, true)
+		end
+
+		return
+	end
+
+	return self:_removeObject(cleanObject, dontCallCleanMethod)
+end
+
+--Collect
+function Dumpster:Clean()
 	self:Destroy()
 end
 
---Clean up method for dumpster
-function Dumpster:Destroy(): ()
-	--In case something was attached, we don't want this method to be recalled again.
-	if self._destroyed then
+function Dumpster:Destroy()
+	--cleans something based on a cleanup method
+	if self._isCleaning or self._destroyed then
+		self:_sendWarn("Tried to Destroy dumpster when its currently being cleaned up!")
 		return
 	end
 
+	self:_destroy()
+
+	table.clear(self._objects)
+	table.clear(self._identifierObjects)
+	table.clear(self._bindedNames)
+	self._functionCleanUp = nil
+	self._threadCleanUp = nil
+end
+
+--Private methods
+function Dumpster:_getCleanUpMethod(object, customCleanupMethod): string?
+	local objectType = typeof(object)
+
+	if (objectType ~= "thread" and objectType ~= "function") and customCleanupMethod then
+		return customCleanupMethod
+	end
+
+	if objectType == "thread" then
+		return self._threadCleanUp
+	elseif objectType == "function" then -- clean up functions to run once Destroy | Clean is called
+		return self._functionCleanUp
+	elseif objectType == "Instance" then
+		return "Destroy"
+	elseif objectType == "table" then
+		if object.Destroy and typeof(object.Destroy) == "function" then
+			return "Destroy"
+		elseif object.Clean and typeof(object.Clean) == "function" then
+			return "Clean"
+		elseif object.Disconnect and typeof(object.Disconnect) == "function" then
+			return "Disconnect"
+		elseif self:_isAPromise(object) then
+			return "cancel"
+		end
+
+		return
+	elseif objectType == "RBXScriptConnection" then
+		return "Disconnect"
+	end
+
+	return
+end
+
+function Dumpster:_cleanUpIdentifierAvailable(cleanupIdentifier: string): boolean
+	if self._identifierObjects[cleanupIdentifier] then
+		self:_sendError("A cleanup identifier with ID:",cleanupIdentifier,"already exists")
+		return false
+	end
+
+	return true
+end
+
+function Dumpster:_removeObject(object: any, dontCallCleanMethod: boolean?)
+	local table: table
+	local index: (number | string)?
+
+	for i, item in ipairs(self._objects) do
+		if item.object == object then
+			table = self._objects
+			index = i
+			break
+		end
+	end
+
+	if not table then
+		for key, item in pairs(self._identifierObjects) do
+			if item.object == object then
+				table = self._identifierObjects
+				index = key
+				break
+			end
+		end
+	end
+
+	if not table then
+		self:_sendWarn("Could not find object to remove!")
+		return
+	end
+
+	local object = table[index].object
+	local method = table[index].method
+
+	if dontCallCleanMethod then
+		local reference = object
+		table[index] = nil
+
+		return reference
+	end
+
+	if self:_cleanObject(object, method, true) then
+		table[index] = nil
+	end
+
+	return
+end
+
+function Dumpster:_destroy()
+	self._isCleaning = true
 	self._destroyed = true
 
-	--First clean up sub dumpsters
-	for _, subDumpster in ipairs(self._subDumpsters) do
-		if not subDumpster then
-			continue
-		end
+	local functionsToRunOnceCleaned = {}
 
-		subDumpster:Destroy()
-	end
-
-	--First clean up connections and instances!
-	for _, item: any in ipairs(self._instances) do
-		--Stopping animations/tweens if added for cleanup
-		self._clean(item)
-	end
-
-	for _, item: any in pairs(self._dictionaryInstances) do
-		self._clean(item)
-	end
-
-	for _, func in ipairs(self._functions) do
-		func()
-	end
-
-	for _, func in pairs(self._dictionaryFunctions) do
-		func()
-	end
-	
-	for _, bindName in ipairs(self._bindNames) do
-		local s, e = pcall(function() 
-			game:GetService('RunService'):UnbindFromRenderStep(bindName)
-		end)
-		if not s then
-			warn(e)
-		end
-	end
-	
-	self = nil
-	--rip self.
-end
-
---clean up private function for item
-function Dumpster._clean(item: any): ()
-	local itemType = typeof(item)
-
-	if itemType == "RBXScriptConnection" then
-		item:Disconnect()
-		return
-	elseif itemType == "table" then
-		if item.Disconnect then
-			item:Disconnect()
+	local function cleanObject(item, cleanUpMethod)
+		if cleanUpMethod == self._functionCleanUp then
+			table.insert(functionsToRunOnceCleaned, item)
 			return
-		end 
-	elseif itemType == "AnimationTrack" then
-		item:Stop()
-	elseif itemType == "Tween" then
-		item:Cancel()
+		end
+
+		self:_cleanObject(item, cleanUpMethod)
 	end
 
-	pcall(function()
-		item:Destroy()
-	end)
+	for _, item in ipairs(self._objects) do
+		cleanObject(item.object, item.method)
+	end
+
+	for _, item in pairs(self._identifierObjects) do
+		cleanObject(item.object, item.method)
+	end
+
+	for _, bindName: string in ipairs(self._bindedNames) do
+		self:UnbindFromRenderStep(bindName)
+	end
+
+	for _, func in ipairs(functionsToRunOnceCleaned) do
+		task.spawn(function()
+			func()
+		end)
+	end
+
+	self._isCleaning = false
 end
 
-function Dumpster:_sendError(message: string)
-	error(message)
-	error(debug.traceback())
+function Dumpster:_cleanObject(item, cleanUpMethod, callFunction: boolean?)
+	if cleanUpMethod == self._threadCleanUp then
+		coroutine.close(item)
+		return
+	end
+
+	if cleanUpMethod == self._functionCleanUp and callFunction then
+		item()
+		return
+	end
+
+	if not item then
+		return
+	end
+
+	if self._isAPromise(item) then
+		pcall(function ()
+			item[cleanUpMethod](item)
+		end)
+
+		return true
+	end
+
+	item[cleanUpMethod](item)
+
+	return true
+end
+
+function Dumpster:_sendError(...): ()
+	error((...) .. "\n", debug.traceback())
+end
+
+function Dumpster:_sendWarn(...): ()
+	warn(...)
+	warn(debug.traceback())
+end
+
+function Dumpster:_isAPromise(object)
+	if typeof(object) ~= "table" then
+		return
+	end
+
+	local hasCancel = object.cancel and typeof(object.cancel) == "function"
+	local hasGetStatus = object.getStatus and typeof(object.getStatus) == "function"
+	local hasFinally = object.finally and typeof(object.finally) == "function"
+	local hasAndThen = object.andThen and typeof(object.andThen) == "function"
+
+	return hasCancel and hasGetStatus and hasFinally and hasAndThen
+end
+
+function Dumpster:_initPromise(object)
+	if object:getStatus() == "Started" then
+		object:finally(function()
+			if self._isCleaning then
+				return
+			end
+
+			self:Remove(object, true)
+		end)
+	end
+
+	return true
 end
 
 return Dumpster
