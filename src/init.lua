@@ -66,12 +66,12 @@ function Dumpster:Construct(object: string | table, ...)
 
 		return object
 	elseif typeof(object) == "table" then
-		if object.new and typeof(object.new) == "function" then
+		if typeof(object.new) == "function" then
 			local class = object.new(...)
 			self:Add(class)
 
 			return class
-		elseif object.create and typeof(object.create) == "function" then
+		elseif typeof(object.create) == "function" then
 			local class = object.create(...)
 			self:Add(class)
 
@@ -287,11 +287,11 @@ function Dumpster:_getCleanUpMethod(object, customCleanupMethod): string?
 	elseif objectType == "Instance" then
 		return "Destroy"
 	elseif objectType == "table" then
-		if object.Destroy and typeof(object.Destroy) == "function" then
+		if typeof(object.Destroy) == "function" then
 			return "Destroy"
-		elseif object.Clean and typeof(object.Clean) == "function" then
+		elseif typeof(object.Clean) == "function" then
 			return "Clean"
-		elseif object.Disconnect and typeof(object.Disconnect) == "function" then
+		elseif typeof(object.Disconnect) == "function" then
 			return "Disconnect"
 		elseif self:_isAPromise(object) then
 			return "cancel"
@@ -436,10 +436,10 @@ function Dumpster:_isAPromise(object)
 		return
 	end
 
-	local hasCancel = object.cancel and typeof(object.cancel) == "function"
-	local hasGetStatus = object.getStatus and typeof(object.getStatus) == "function"
-	local hasFinally = object.finally and typeof(object.finally) == "function"
-	local hasAndThen = object.andThen and typeof(object.andThen) == "function"
+	local hasCancel = typeof(object.cancel) == "function"
+	local hasGetStatus = typeof(object.getStatus) == "function"
+	local hasFinally = typeof(object.finally) == "function"
+	local hasAndThen = typeof(object.andThen) == "function"
 
 	return hasCancel and hasGetStatus and hasFinally and hasAndThen
 end
