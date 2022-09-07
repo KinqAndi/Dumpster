@@ -60,30 +60,21 @@ function Dumpster:Extend()
 end
 
 function Dumpster:Construct(object: string | table, ...)
-	if typeof(object) == "string" then
+	if type(object) == "string" then
 		local object = Instance.new(object)
 		self:Add(object, ...)
 
 		return object
-	elseif typeof(object) == "table" then
-		if typeof(object.new) == "function" then
-			local class = object.new(...)
-			self:Add(class)
-
-			return class
-		elseif typeof(object.create) == "function" then
-			local class = object.create(...)
-			self:Add(class)
-
-			return class
-		else
-			self:_sendWarn("Could not find a constructor class, therefore nothing was constructed!")
-		end
-
+	elseif type(object) == "table" then
+		local item = object.new(...)
+		self:Add(item)
+		return item
+	elseif type(object) == "function" then
+		self:Add(object(...))
 		return
+	else
+		self:_sendWarn("Object could not be constructed!")
 	end
-
-	self:_sendWarn("Object could not be constructed!")
 end
 
 function Dumpster:Clone(item: Instance)
@@ -436,10 +427,10 @@ function Dumpster:_isAPromise(object)
 		return
 	end
 
-	local hasCancel = typeof(object.cancel) == "function"
-	local hasGetStatus = typeof(object.getStatus) == "function"
-	local hasFinally = typeof(object.finally) == "function"
-	local hasAndThen = typeof(object.andThen) == "function"
+	local hasCancel = type(object.cancel) == "function"
+	local hasGetStatus = type(object.getStatus) == "function"
+	local hasFinally = type(object.finally) == "function"
+	local hasAndThen = type(object.andThen) == "function"
 
 	return hasCancel and hasGetStatus and hasFinally and hasAndThen
 end
