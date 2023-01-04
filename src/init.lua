@@ -303,7 +303,7 @@ function Dumpster:AttachTo(item: any)
 		end
 
 		if item.Looped then
-			self:_sendWarn(item, "is looped, therefore attaching to .Destroying instead of .Stopped")
+			self:_sendWarn(item, "is looped, therefore attaching to .Destroying event instead of .Ended event")
 
 			self:Add(item.Destroying:Connect(function()
 				self:Destroy()
@@ -313,7 +313,7 @@ function Dumpster:AttachTo(item: any)
 		end
 
 		if item.TimeLength == 0 then
-			warn(item, "TimeLength is 0, so connecting to .Destroying instead of .Ended")
+			warn(item, "TimeLength is 0, so attaching to .Destroying event instead of .Ended event")
 
 			self:Add(item.Destroying:Connect(function()
 				self:Destroy()
