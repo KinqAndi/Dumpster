@@ -35,7 +35,7 @@ end
 ]]
 
 function Dumpster:Add(object: any, cleanUpIdentifier: string?, customCleanupMethod: string?) 
-	if self._isCleaning or self._destroyed then
+	if self._isCleaning then
 		self:_sendWarn("Cannot add item for cleanup when dumpster is being cleaned up/destroyed")
 		return
 	end
@@ -167,7 +167,7 @@ function Dumpster:BindToRenderStep(name: string, priority: number, func: (dt: nu
 	assert(priority ~= nil and typeof(priority) == "number", "Priority must be a number!")
 	assert(func ~= nil and typeof(func) == "function", "Must have a callback function!")
 
-	if self._isCleaning or self._destroyed then
+	if self._isCleaning then
 		self:_sendWarn("Cannot bind function to render step when dumpster is being cleaned up/destroyed")
 		return
 	end
@@ -197,7 +197,7 @@ function Dumpster:UnbindFromRenderStep(name: string)
 		return
 	end
 
-	if self._isCleaning or self._destroyed then
+	if self._isCleaning then
 		self:_sendWarn("Cannot unbind from renderstepped when dumpster is being cleaned up/destroyed")
 		return
 	end
@@ -226,7 +226,7 @@ function Dumpster:Connect(signal: RBXScriptSignal, connectFunction: (any)->(any)
 		return
 	end
 
-	if self._isCleaning or self._destroyed then
+	if self._isCleaning then
 		self:_sendWarn("Cannot call method when dumpster is being cleaned up/destroyed")
 		return
 	end
@@ -244,7 +244,7 @@ end
 function Dumpster:AttachTo(item: any)
 	local itemType = typeof(item)
 
-	if self._isCleaning or self._destroyed then
+	if self._isCleaning then
 		self:_sendWarn("Cannot called AttachTo when dumpster is being cleaned up/destroyed")
 		return
 	end
@@ -356,7 +356,7 @@ end
 ]]
 
 function Dumpster:Remove(cleanObject: any, dontCallCleanMethod: boolean?): any?
-	if self._isCleaning or self._destroyed then
+	if self._isCleaning then
 		self:_sendWarn("Cannot remove item when dumpster is being cleaned up/destroyed")
 		return
 	end
@@ -403,7 +403,7 @@ end
 
 function Dumpster:Destroy()
 	--cleans something based on a cleanup method
-	if self._isCleaning or self._destroyed then
+	if self._isCleaning then
 		self:_sendWarn("Tried to Destroy dumpster when its currently being cleaned up!")
 		return
 	end
@@ -413,8 +413,9 @@ function Dumpster:Destroy()
 	table.clear(self._objects)
 	table.clear(self._identifierObjects)
 	table.clear(self._bindedNames)
-	self._functionCleanUp = nil
-	self._threadCleanUp = nil
+	--self._functionCleanUp = nil
+	--self._threadCleanUp = nil
+	--commented out so Dumpster could be reused after cleaned/destroyed.
 end
 
 --Private methods
@@ -503,7 +504,6 @@ end
 
 function Dumpster:_destroy()
 	self._isCleaning = true
-	self._destroyed = true
 
 	local functionsToRunOnceCleaned = {}
 
@@ -533,9 +533,7 @@ function Dumpster:_destroy()
 	end
 
 	for _, func in ipairs(functionsToRunOnceCleaned) do
-		task.spawn(function()
-			func()
-		end)
+		task.spawn(func)
 	end
 
 	self._isCleaning = false
