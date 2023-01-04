@@ -1,8 +1,13 @@
-# Dumpster API
-
 <div align = center>
 
-[<kbd> <br>    Go to API    <br> </kbd>][KBD]
+# Description
+
+Dumpsters main purpose is to prevent memory leaks, and make code cleaner if dealing with major codebases that require a lot of assets such as animations/sounds/tweens etc...
+
+# Wally Dependency
+`Dumpster = "kinqandi/dumpster@0.2.7"`
+
+# Dumpster [<kbd> <br>    API    <br> </kbd>][KBD]
 
 </div>
 
