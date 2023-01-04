@@ -1,3 +1,5 @@
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local Dumpster = {}
@@ -295,12 +297,34 @@ function Dumpster:AttachTo(item: any)
 			end
 		end))
 	elseif itemType == "Instance" and item:IsA("Sound") then
-		
+		if not item:IsDescendantOf(game) then
+			self:_sendError("Instance is not a child of the game hiearchy, cannot be attached!")
+			return
+		end
+
 		if item.Looped then
 			self:_sendWarn(item, "is looped, therefore attaching to .Destroying instead of .Stopped")
 
+			self:Add(item.Destroying:Connect(function()
+				self:Destroy()
+			end))
 
+			return
 		end
+
+		if item.TimeLength == 0 then
+			warn(item, "TimeLength is 0, so connecting to .Destroying instead of .Ended")
+
+			self:Add(item.Destroying:Connect(function()
+				self:Destroy()
+			end))
+
+			return
+		end
+
+		self:Add(item.Ended:Connect(function()
+			self:Destroy()
+		end))
 	end
 
 	if itemType == "Instance" then
