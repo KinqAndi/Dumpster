@@ -283,6 +283,24 @@ function Dumpster:AttachTo(item: any)
 		end
 
 		return
+	elseif itemType == "Instance" and item:IsA("Player") then
+		if not item:IsDescendantOf(game) then
+			self:Destroy()
+			return
+		end
+
+		self:Add(Players.PlayerRemoving:Connect(function(player: Player)
+			if player == item then
+				self:Destroy()
+			end
+		end))
+	elseif itemType == "Instance" and item:IsA("Sound") then
+		
+		if item.Looped then
+			self:_sendWarn(item, "is looped, therefore attaching to .Destroying instead of .Stopped")
+
+
+		end
 	end
 
 	if itemType == "Instance" then
