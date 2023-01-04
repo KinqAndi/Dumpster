@@ -3,6 +3,11 @@ local RunService = game:GetService("RunService")
 local Dumpster = {}
 Dumpster.__index = Dumpster
 
+--[[
+    Returns: Dumpster
+    Description: Constructor for Dumpster.
+]]
+
 function Dumpster.new()
 	local self = setmetatable({
 		_objects = {},
@@ -11,10 +16,21 @@ function Dumpster.new()
 
 		_functionCleanUp = newproxy(),
 		_threadCleanUp = newproxy(),
+
+        _dumpsterProxy = newproxy()
 	}, Dumpster)
 
 	return self
 end
+
+--[[
+    Returns: any?
+    Description: Takes any object as a paremeter and adds it to the dumpster for cleanup.
+    Paremeters
+        - object: any,
+        - cleanUpIdentifier: string? (optional, could be removed from Dumpster:Remove(cleanUpIdentifier))
+        - customCleanupMethod: string? (if object is a custom class and has a different cleanup method)
+]]
 
 function Dumpster:Add(object: any, cleanUpIdentifier: string?, customCleanupMethod: string?) 
 	if self._isCleaning or self._destroyed then
@@ -44,6 +60,14 @@ function Dumpster:Add(object: any, cleanUpIdentifier: string?, customCleanupMeth
 	return object
 end
 
+--[[
+    Returns: ()
+    Description: Add a promise to the dumpster
+    Paremeters
+        - promise: Promise,
+        - cleanUpIdentifier: string? (optional, could be removed from Dumpster:Remove(cleanUpIdentifier))
+]]
+
 function Dumpster:AddPromise(promise, cleanUpIdentifier: string?)
 	if not self:_isAPromise(promise) then
 		self:_sendWarn("This is not a promise!")
@@ -53,7 +77,7 @@ function Dumpster:AddPromise(promise, cleanUpIdentifier: string?)
 	self:_initPromise(promise)
 
 	local cleanUpMethod = "cancel"
-	
+
 	if cleanUpIdentifier then
 		if not self:_cleanUpIdentifierAvailable(cleanUpIdentifier) then
 			return
@@ -62,18 +86,33 @@ function Dumpster:AddPromise(promise, cleanUpIdentifier: string?)
 		self._identifierObjects[cleanUpIdentifier] = {object = promise, method = cleanUpMethod}
 		return
 	end
-	
+
 	table.insert(self._objects, {object = promise, method = cleanUpMethod})
 end
 
+--[[
+    Returns: Dumpster
+    Description: Creates a sub dumpster and then adds it to the parent Dumpster for cleanup.
+]]
+
 function Dumpster:Extend()
 	local subDumpster = self.new()
+    subDumpster._dumpsterProxy = self._dumpsterProxy
+
 	self:Add(subDumpster)
 
 	return subDumpster
 end
 
-function Dumpster:Construct(object: string | table, ...)
+--[[
+    Returns: any?
+    Description: Construct an Instance/Class/Function with tuple arguments
+    Paremeters
+        - object: string | table | function,
+        - ... (optional arguments to be passed on to the constructed object.)
+]]
+
+function Dumpster:Construct(object: string | table | ()->(), ...)
 	if type(object) == "string" then
 		local object = Instance.new(object)
 		self:Add(object, ...)
@@ -84,12 +123,21 @@ function Dumpster:Construct(object: string | table, ...)
 		self:Add(item)
 		return item
 	elseif type(object) == "function" then
-		self:Add(object(...))
-		return
+        local item = object(...)
+        
+		self:Add(item)
+		return item
 	else
 		self:_sendWarn("Object could not be constructed!")
 	end
 end
+
+--[[
+    Returns: Instance
+    Description: Creates a clone of an instance and adds it to the dumpster.
+    Paremeters
+        - item: Instance,
+]]
 
 function Dumpster:Clone(item: Instance)
 	if typeof(item) ~= "Instance" then
@@ -102,6 +150,15 @@ function Dumpster:Clone(item: Instance)
 
 	return item
 end
+
+--[[
+    Returns: ()
+    Description: Connects a callback to render stepped. Will automatically Unbind once Dumpster is destroyed.
+    Paremeters
+        - name: string,
+        - priority: string,
+        - func: (deltaTime: number)->(),
+]]
 
 function Dumpster:BindToRenderStep(name: string, priority: number, func: (dt: number)->(any)): ()
 	assert(name ~= nil and typeof(name) == "string", "Name must be a string!")
@@ -123,6 +180,13 @@ function Dumpster:BindToRenderStep(name: string, priority: number, func: (dt: nu
 	table.insert(self._bindedNames, name)
 end
 
+--[[
+    Returns: ()
+    Description: This will unbind a function from renderstepped.
+    Paremeters
+        - name: string,
+]]
+
 function Dumpster:UnbindFromRenderStep(name: string)
 	local foundAt: number? = table.find(self._bindedNames, name)
 
@@ -140,7 +204,16 @@ function Dumpster:UnbindFromRenderStep(name: string)
 	RunService:UnbindFromRenderStep(name)
 end
 
-function Dumpster:Connect(signal: RBXScriptSignal, connectFunction)
+--[[
+    Returns: any?
+    Description: Wraps a signal with a function and adds it to the dumpster.
+    Paremeters
+        - object: any,
+        - cleanUpIdentifier: string? (optional, could be removed from Dumpster:Remove(cleanUpIdentifier))
+        - customCleanupMethod: string? (if object is a custom class and has a different cleanup method)
+]]
+
+function Dumpster:Connect(signal: RBXScriptSignal, connectFunction: (any)->(any))
 	if typeof(signal) ~= "RBXScriptSignal" then
 		self:_sendWarn("Attempted to Connect with object not being of type RBXScriptSignal")
 		return
@@ -156,8 +229,15 @@ function Dumpster:Connect(signal: RBXScriptSignal, connectFunction)
 		return
 	end
 
-	self:Add(signal:Connect(connectFunction))
+	return self:Add(signal:Connect(connectFunction))
 end
+
+--[[
+    Returns: ()
+    Description: This will attach the dumpster to provided object. Once that object is destroyed, dumpster will be too.
+    Paremeters
+        - item: any,
+]]
 
 function Dumpster:AttachTo(item: any)
 	local itemType = typeof(item)
@@ -223,6 +303,16 @@ function Dumpster:AttachTo(item: any)
 	return
 end
 
+--[[
+    Returns: any?
+    Description: Will Remove an object/string reference from the Dumpster.
+        - If removed object is a function, and you don't want that function to run, 
+          You can pass in the "dontCallCleanMethod" parameter as true.
+    Paremeters
+        - cleanObject: any,
+        - dontCallCleanMethod: boolean?
+]]
+
 function Dumpster:Remove(cleanObject: any, dontCallCleanMethod: boolean?): any?
 	if self._isCleaning or self._destroyed then
 		self:_sendWarn("Cannot remove item when dumpster is being cleaned up/destroyed")
@@ -256,10 +346,18 @@ function Dumpster:Remove(cleanObject: any, dontCallCleanMethod: boolean?): any?
 	return self:_removeObject(cleanObject, dontCallCleanMethod)
 end
 
---Collect
+--[[
+    Returns: ()
+    Description: Alias for Destroy()
+]]
+
 function Dumpster:Clean()
 	self:Destroy()
 end
+--[[
+    Returns: ()
+    Description: Cleans up the dumpster.
+]]
 
 function Dumpster:Destroy()
 	--cleans something based on a cleanup method
@@ -372,6 +470,10 @@ function Dumpster:_destroy()
 			table.insert(functionsToRunOnceCleaned, item)
 			return
 		end
+
+        if typeof(item) == "table" and item._dumpsterProxy == self._dumpsterProxy and item._destroyed then
+            return
+        end
 
 		self:_cleanObject(item, cleanUpMethod)
 	end
