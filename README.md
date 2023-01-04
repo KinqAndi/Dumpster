@@ -7,7 +7,7 @@ Dumpsters main purpose is to prevent memory leaks, and make code cleaner if deal
 # Wally Dependency
 `Dumpster = "kinqandi/dumpster@0.2.7"`
 
-# Dumpster [<kbd> <br>    API    <br> </kbd>][KBD]
+# [<kbd> <br>    Click Here To Go To Dumpster's API    <br> </kbd>][KBD]
 
 </div>
 
