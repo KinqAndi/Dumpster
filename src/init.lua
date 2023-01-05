@@ -512,11 +512,11 @@ function Dumpster:_destroy()
 			table.insert(functionsToRunOnceCleaned, item)
 			return
 		end
-
-        if typeof(item) == "table" and item._dumpsterProxy == self._dumpsterProxy and item._destroyed then
+--[[
+        if typeof(item) == "table" and (self._dumpsterProxy == self._dumpsterProxy) and self._destroyed then
             return
         end
-
+--]]
 		self:_cleanObject(item, cleanUpMethod)
 	end
 
