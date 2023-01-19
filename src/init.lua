@@ -197,11 +197,6 @@ function Dumpster:UnbindFromRenderStep(name: string)
 		return
 	end
 
-	if self._isCleaning then
-		self:_sendWarn("Cannot unbind from renderstepped when dumpster is being cleaned up/destroyed")
-		return
-	end
-
 	table.remove(self._bindedNames, foundAt)
 	RunService:UnbindFromRenderStep(name)
 end
