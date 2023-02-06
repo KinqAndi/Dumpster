@@ -446,7 +446,7 @@ end
 
 function Dumpster:_cleanUpIdentifierAvailable(cleanupIdentifier: string): boolean
 	if self._identifierObjects[cleanupIdentifier] then
-		self:_sendError("A cleanup identifier with ID:",cleanupIdentifier,"already exists")
+		self:_sendError("A cleanup identifier with ID: " .. cleanupIdentifier .. "already exists")
 		return false
 	end
 
@@ -562,8 +562,8 @@ function Dumpster:_cleanObject(item, cleanUpMethod, callFunction: boolean?)
 	return true
 end
 
-function Dumpster:_sendError(...): ()
-	error((...) .. "\n", debug.traceback())
+function Dumpster:_sendError(msg: string): ()
+	error(msg .. "\n" .. debug.traceback())
 end
 
 function Dumpster:_sendWarn(...): ()
