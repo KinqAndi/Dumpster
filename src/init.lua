@@ -1,3 +1,10 @@
+--[[[
+	Author @Andi Muhaxheri / KinqAndi
+	Date @03/07/21
+	Version: 0.3.2
+		Version Update Date: 3/21/23
+]]
+
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -523,8 +530,8 @@ function Dumpster:_destroy()
 		cleanObject(item.object, item.method)
 	end
 
-	for _, bindName: string in ipairs(self._bindedNames) do
-		self:UnbindFromRenderStep(bindName)
+	for _, bindName in ipairs(self._bindedNames) do
+		RunService:UnbindFromRenderStep(bindName)
 	end
 
 	for _, func in ipairs(functionsToRunOnceCleaned) do
@@ -536,7 +543,9 @@ end
 
 function Dumpster:_cleanObject(item, cleanUpMethod, callFunction: boolean?)
 	if cleanUpMethod == self._threadCleanUp then
-		coroutine.close(item)
+		if coroutine.status(item) ~= "dead" then
+			coroutine.close(item)
+		end
 		return
 	end
 
