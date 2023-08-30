@@ -1,13 +1,17 @@
 --[[[
 	Author @Andi Muhaxheri / KinqAndi
 	Date @03/07/21
-	Version: 0.3.2
-		Version Update Date: 3/21/23
+	Version: 0.3.3
+		Version Update Date: 8/30/23
 ]]
 
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+
+local FUNCTION_CLEAN_UP_ID = newproxy()
+local THREAD_CLEAN_UP_ID = newproxy()
+local DUMPSTER_CLEAN_UP_ID = newproxy()
 
 local Dumpster = {}
 Dumpster.__index = Dumpster
@@ -19,14 +23,13 @@ Dumpster.__index = Dumpster
 
 function Dumpster.new()
 	local self = setmetatable({
+		supressWarnings = false,
+		supressErrors = false,
+
 		_objects = {},
 		_identifierObjects = {},
 		_bindedNames = {},
-
-		_functionCleanUp = newproxy(),
-		_threadCleanUp = newproxy(),
-
-        _dumpsterProxy = newproxy()
+		_attributes = {},
 	}, Dumpster)
 
 	return self
@@ -100,13 +103,30 @@ function Dumpster:AddPromise(promise, cleanUpIdentifier: string?)
 end
 
 --[[
+    Returns: nil
+    Description: Adds an attribute to the dumpster
+]]
+
+function Dumpster:SetAttribute(attrName: string, attrVal: any)
+	self._attributes[attrName] = attrVal
+end
+
+--[[
+    Returns: any?
+    Description: Retrieves an attribute from the dumpster
+]]
+function Dumpster:GetAttribute(attrName: string)
+	return self._attributes[attrName]
+end
+
+--[[
     Returns: Dumpster
     Description: Creates a sub dumpster and then adds it to the parent Dumpster for cleanup.
 ]]
 
 function Dumpster:Extend()
 	local subDumpster = self.new()
-    subDumpster._dumpsterProxy = self._dumpsterProxy
+    subDumpster._dumpsterProxy = DUMPSTER_CLEAN_UP_ID
 
 	self:Add(subDumpster)
 
@@ -217,7 +237,7 @@ end
         - customCleanupMethod: string? (if object is a custom class and has a different cleanup method)
 ]]
 
-function Dumpster:Connect(signal: RBXScriptSignal, connectFunction: (any)->(any))
+function Dumpster:Connect(signal: RBXScriptSignal, connectFunction: (any)->(any), cleanupIdentifier: string?)
 	if typeof(signal) ~= "RBXScriptSignal" then
 		self:_sendWarn("Attempted to Connect with object not being of type RBXScriptSignal")
 		return
@@ -233,7 +253,7 @@ function Dumpster:Connect(signal: RBXScriptSignal, connectFunction: (any)->(any)
 		return
 	end
 
-	return self:Add(signal:Connect(connectFunction))
+	return self:Add(signal:Connect(connectFunction), cleanupIdentifier)
 end
 
 --[[
@@ -299,23 +319,8 @@ function Dumpster:AttachTo(item: any)
 			end
 		end))
 	elseif itemType == "Instance" and item:IsA("Sound") then
-		if not item:IsDescendantOf(game) then
-			self:_sendError("Instance is not a child of the game hiearchy, cannot be attached!")
-			return
-		end
-
 		if item.Looped then
 			self:_sendWarn(item, "is looped, therefore attaching to .Destroying event instead of .Ended event")
-
-			self:Add(item.Destroying:Connect(function()
-				self:Destroy()
-			end))
-
-			return
-		end
-
-		if item.TimeLength == 0 then
-			warn(item, "TimeLength is 0, so attaching to .Destroying event instead of .Ended event")
 
 			self:Add(item.Destroying:Connect(function()
 				self:Destroy()
@@ -327,14 +332,41 @@ function Dumpster:AttachTo(item: any)
 		self:Add(item.Ended:Connect(function()
 			self:Destroy()
 		end))
+
+		self:Add(item.Destroying:Connect(function()
+			self:Destroy()
+		end))
+	elseif itemType == "RBXScriptSignal" then
+		self:Connect(item, function()
+			self:Destroy()
+		end)
+
+		return
+	elseif itemType == "table" and typeof(item["Connect"]) == "function" then
+		self:Add(item:Connect(function()
+			self:Destroy()
+		end))
+
+		return
+	elseif itemType == "Instance" and item.ClassName == "Model" and Players:GetPlayerFromCharacter(item) then
+		self:AttachTo(Players:GetPlayerFromCharacter(item))
+
+		self:_streamWithUID(item, "Humanoid", function(humanoid: Humanoid)
+			self:Add(humanoid.Died:Connect(function()
+				self:Destroy()
+			end))
+
+			-- just in case died doesnt fire, sometimes that be happening lol.
+			-- why you may ask? roblok
+			self:Add(humanoid.StateChanged:Connect(function(_, newState: Enum.HumanoidStateType)
+				if newState == Enum.HumanoidStateType.Dead then
+					self:Destroy()
+				end
+			end))
+		end)
 	end
 
 	if itemType == "Instance" then
-		if not item:IsDescendantOf(game) then
-			self:_sendError("Instance is not a child of the game hiearchy, cannot be attached!")
-			return
-		end
-
 		self:Add(item.Destroying:Connect(function()
 			self:Destroy()
 		end))
@@ -342,7 +374,7 @@ function Dumpster:AttachTo(item: any)
 		return
 	end
 
-	self:_sendWarn("Item was not attached to Dumpster, allowed objects: Instance | Tween | TweenBase | AnimationTrack")
+	self:_sendWarn("Item was not attached to Dumpster, allowed objects: Instance | Tween | TweenBase | AnimationTrack | Sound | RBXScriptSignal")
 
 	return
 end
@@ -367,6 +399,7 @@ function Dumpster:Remove(cleanObject: any, dontCallCleanMethod: boolean?): any?
 		if not self._identifierObjects[cleanObject] then
 			if table.find(self._bindedNames, cleanObject) then
 				self:UnbindFromRenderStep(cleanObject)
+				self._identifierObjects[cleanObject] = nil
 				return
 			end
 
@@ -415,12 +448,42 @@ function Dumpster:Destroy()
 	table.clear(self._objects)
 	table.clear(self._identifierObjects)
 	table.clear(self._bindedNames)
-	--self._functionCleanUp = nil
-	--self._threadCleanUp = nil
+	table.clear(self._attributes)
 	--commented out so Dumpster could be reused after cleaned/destroyed.
 end
 
---Private methods
+--
+function Dumpster:_streamWithUID(obj: Instance, childName: string, callback: (Instance)->())
+	local found = obj:FindFirstChild(childName)
+
+	if found then
+		callback(found)
+		return
+	end
+
+	local uid = `STREAM_UID_{HttpService:GenerateGUID()}`
+
+	local elapsed = 0
+
+	self:Add(RunService.Heartbeat:Connect(function(dt)
+		elapsed += dt
+		local itemExist = obj:FindFirstChild(childName)
+
+		if itemExist or elapsed >= 5 then
+			if itemExist then
+				callback(itemExist)
+			else
+				self:_sendWarn("Attempt on streaming for", childName, "resulted in a timeout.")
+			end
+
+			self:Remove(uid)
+			elapsed = nil
+		end
+	end), uid)
+
+	return uid
+end
+
 function Dumpster:_getCleanUpMethod(object, customCleanupMethod): string?
 	local objectType = typeof(object)
 
@@ -429,9 +492,9 @@ function Dumpster:_getCleanUpMethod(object, customCleanupMethod): string?
 	end
 
 	if objectType == "thread" then
-		return self._threadCleanUp
+		return THREAD_CLEAN_UP_ID
 	elseif objectType == "function" then -- clean up functions to run once Destroy | Clean is called
-		return self._functionCleanUp
+		return FUNCTION_CLEAN_UP_ID
 	elseif objectType == "Instance" then
 		return "Destroy"
 	elseif objectType == "table" then
@@ -493,12 +556,13 @@ function Dumpster:_removeObject(object: any, dontCallCleanMethod: boolean?)
 	if dontCallCleanMethod then
 		local reference = object
 		table[index] = nil
-
+		self._identifierObjects[index] = nil
 		return reference
 	end
 
 	if self:_cleanObject(object, method, true) then
 		table[index] = nil
+		self._identifierObjects[index] = nil
 	end
 
 	return
@@ -510,12 +574,12 @@ function Dumpster:_destroy()
 	local functionsToRunOnceCleaned = {}
 
 	local function cleanObject(item, cleanUpMethod)
-		if cleanUpMethod == self._functionCleanUp then
+		if cleanUpMethod == FUNCTION_CLEAN_UP_ID then
 			table.insert(functionsToRunOnceCleaned, item)
 			return
 		end
 --[[
-        if typeof(item) == "table" and (self._dumpsterProxy == self._dumpsterProxy) and self._destroyed then
+        if typeof(item) == "table" and (DUMPSTER_CLEAN_UP_ID == DUMPSTER_CLEAN_UP_ID) and self._destroyed then
             return
         end
 --]]
@@ -542,14 +606,14 @@ function Dumpster:_destroy()
 end
 
 function Dumpster:_cleanObject(item, cleanUpMethod, callFunction: boolean?)
-	if cleanUpMethod == self._threadCleanUp then
+	if cleanUpMethod == THREAD_CLEAN_UP_ID then
 		if coroutine.status(item) ~= "dead" then
 			coroutine.close(item)
 		end
 		return
 	end
 
-	if cleanUpMethod == self._functionCleanUp and callFunction then
+	if cleanUpMethod == FUNCTION_CLEAN_UP_ID and callFunction then
 		item()
 		return
 	end
@@ -572,10 +636,18 @@ function Dumpster:_cleanObject(item, cleanUpMethod, callFunction: boolean?)
 end
 
 function Dumpster:_sendError(msg: string): ()
+	if self.supressErrors then
+		return
+	end
+
 	error(msg .. "\n" .. debug.traceback())
 end
 
 function Dumpster:_sendWarn(...): ()
+	if self.supressWarnings then
+		return
+	end
+
 	warn(...)
 	warn(debug.traceback())
 end
