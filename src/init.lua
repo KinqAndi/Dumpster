@@ -23,8 +23,8 @@ Dumpster.__index = Dumpster
 
 function Dumpster.new()
 	local self = setmetatable({
-		supressWarnings = false,
-		supressErrors = false,
+		suppressWarnings = false,
+		suppressErrors = false,
 
 		_objects = {},
 		_identifierObjects = {},
@@ -636,7 +636,7 @@ function Dumpster:_cleanObject(item, cleanUpMethod, callFunction: boolean?)
 end
 
 function Dumpster:_sendError(msg: string): ()
-	if self.supressErrors then
+	if self.suppressErrors then
 		return
 	end
 
@@ -644,7 +644,7 @@ function Dumpster:_sendError(msg: string): ()
 end
 
 function Dumpster:_sendWarn(...): ()
-	if self.supressWarnings then
+	if self.suppressWarnings then
 		return
 	end
 
