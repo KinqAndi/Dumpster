@@ -372,10 +372,7 @@ function Dumpster:AttachTo(item: any)
 	end
 
 	if itemType == "Instance" then
-		self:Add(item.Destroying:Connect(function()
-			self:Destroy()
-		end))
-
+		self:AttachTo(item.Destroying)
 		return
 	end
 
