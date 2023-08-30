@@ -349,7 +349,12 @@ function Dumpster:AttachTo(item: any)
 
 		return
 	elseif itemType == "Instance" and item.ClassName == "Model" and Players:GetPlayerFromCharacter(item) then
-		self:AttachTo(Players:GetPlayerFromCharacter(item))
+		local playerInstance = Players:GetPlayerFromCharacter(item)
+
+		if playerInstance then
+			self:AttachTo(playerInstance)
+			self:AttachTo(playerInstance.CharacterAdded)
+		end
 
 		self:_streamWithUID(item, "Humanoid", function(humanoid: Humanoid)
 			self:Add(humanoid.Died:Connect(function()
