@@ -1,8 +1,8 @@
 --[[[
 	Author @Andi Muhaxheri / KinqAndi
 	Date @03/07/21
-	Version: 0.3.3
-		Version Update Date: 8/30/23
+	Version: 0.3.6
+		Version Update Date: 9/02/23
 ]]
 
 local HttpService = game:GetService("HttpService")
@@ -53,6 +53,12 @@ function Dumpster:Add(object: any, cleanUpIdentifier: string?, customCleanupMeth
 	local cleanUpMethod = self:_getCleanUpMethod(object, customCleanupMethod)
 
 	if not cleanUpMethod then
+		if typeof(object) == "table" then
+			if self:_isAPromise(object) then
+				return self:AddPromise(object, cleanUpIdentifier)
+			end
+		end
+
 		self:_sendWarn(object, "was not added for cleanup, could not find a cleanup method!")
 		return
 	end
@@ -86,9 +92,8 @@ function Dumpster:AddPromise(promise, cleanUpIdentifier: string?)
 		return
 	end
 
-	self:_initPromise(promise)
-
 	local cleanUpMethod = "cancel"
+	cleanUpIdentifier = cleanUpIdentifier or HttpService:GenerateGUID()
 
 	if cleanUpIdentifier then
 		if not self:_cleanUpIdentifierAvailable(cleanUpIdentifier) then
@@ -96,10 +101,12 @@ function Dumpster:AddPromise(promise, cleanUpIdentifier: string?)
 		end
 
 		self._identifierObjects[cleanUpIdentifier] = {object = promise, method = cleanUpMethod}
+		self:_initPromise(promise, cleanUpIdentifier)
 		return
 	end
 
 	table.insert(self._objects, {object = promise, method = cleanUpMethod})
+	self:_initPromise(promise, cleanUpIdentifier)
 end
 
 --[[
@@ -655,32 +662,31 @@ function Dumpster:_sendWarn(...): ()
 end
 
 function Dumpster:_isAPromise(object)
-	if typeof(object) ~= "table" then
-		return
-	end
+	local s,e  = pcall(function()
+		local hasCancel = typeof(object.cancel) == "function"
+		local hasGetStatus = typeof(object["getStatus"]) == "function"
+		local hasFinally = typeof(object["finally"]) == "function"
 
-	local s, e = pcall(function()
-		local hasCancel = type(object.cancel) == "function"
-		local hasGetStatus = type(object.getStatus) == "function"
-		local hasFinally = type(object.finally) == "function"
-		local hasAndThen = type(object.andThen) == "function"
+		local hasAndThen = typeof(object["andThen"]) == "function"
+
+		return hasCancel and hasGetStatus and hasFinally and hasAndThen
 	end)
 
 	if not s then
 		return false
 	end
 
-	return true
+	return e
 end
 
-function Dumpster:_initPromise(object)
+function Dumpster:_initPromise(object, cleanupIdentifier)
 	if object:getStatus() == "Started" then
 		object:finally(function()
 			if self._isCleaning then
 				return
 			end
 
-			self:Remove(object, true)
+			self:Remove(cleanupIdentifier, true)
 		end)
 	end
 

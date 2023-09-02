@@ -1,6 +1,6 @@
 [package]
 name = "kinqandi/dumpster"
-version = "0.3.5"
+version = "0.3.6"
 registry = "https://github.com/UpliftGames/wally-index"
 license = "MIT OR Apache-2.0"
 realm = "shared"
