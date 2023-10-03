@@ -59,12 +59,6 @@ function Dumpster:Add(object: any, cleanUpIdentifier: string?, customCleanupMeth
 			end
 		end
 
-		if typeof(object) == "table" then
-			if self:_isAPromise(object) then
-				return self:AddPromise(object, cleanUpIdentifier)
-			end
-		end
-
 		self:_sendWarn(object, "was not added for cleanup, could not find a cleanup method!")
 		return
 	end
@@ -100,7 +94,6 @@ function Dumpster:AddPromise(promise, cleanUpIdentifier: string?)
 
 	local cleanUpMethod = "cancel"
 	cleanUpIdentifier = cleanUpIdentifier or HttpService:GenerateGUID()
-	cleanUpIdentifier = cleanUpIdentifier or HttpService:GenerateGUID()
 
 	if cleanUpIdentifier then
 		if not self:_cleanUpIdentifierAvailable(cleanUpIdentifier) then
@@ -109,12 +102,10 @@ function Dumpster:AddPromise(promise, cleanUpIdentifier: string?)
 
 		self._identifierObjects[cleanUpIdentifier] = {object = promise, method = cleanUpMethod}
 		self:_initPromise(promise, cleanUpIdentifier)
-		self:_initPromise(promise, cleanUpIdentifier)
 		return
 	end
 
 	table.insert(self._objects, {object = promise, method = cleanUpMethod})
-	self:_initPromise(promise, cleanUpIdentifier)
 	self:_initPromise(promise, cleanUpIdentifier)
 end
 
@@ -679,14 +670,6 @@ function Dumpster:_isAPromise(object)
 		local hasAndThen = typeof(object["andThen"]) == "function"
 
 		return hasCancel and hasGetStatus and hasFinally and hasAndThen
-	local s,e  = pcall(function()
-		local hasCancel = typeof(object.cancel) == "function"
-		local hasGetStatus = typeof(object["getStatus"]) == "function"
-		local hasFinally = typeof(object["finally"]) == "function"
-
-		local hasAndThen = typeof(object["andThen"]) == "function"
-
-		return hasCancel and hasGetStatus and hasFinally and hasAndThen
 	end)
 
 	if not s then
@@ -694,10 +677,8 @@ function Dumpster:_isAPromise(object)
 	end
 
 	return e
-	return e
 end
 
-function Dumpster:_initPromise(object, cleanupIdentifier)
 function Dumpster:_initPromise(object, cleanupIdentifier)
 	if object:getStatus() == "Started" then
 		object:finally(function()
@@ -705,7 +686,6 @@ function Dumpster:_initPromise(object, cleanupIdentifier)
 				return
 			end
 
-			self:Remove(cleanupIdentifier, true)
 			self:Remove(cleanupIdentifier, true)
 		end)
 	end
