@@ -418,13 +418,14 @@ function Dumpster:Remove(cleanObject: any, dontCallCleanMethod: boolean?): any?
 
 		local object = self._identifierObjects[cleanObject].object
 		local method = self._identifierObjects[cleanObject].method
+		
+		self._identifierObjects[cleanObject] = nil
 
 		if dontCallCleanMethod then
-			self._identifierObjects[cleanObject] = nil
 			return object
-		else
-			self:_cleanObject(object, method, true)
 		end
+
+		self:_cleanObject(object, method, true)
 
 		return
 	end
