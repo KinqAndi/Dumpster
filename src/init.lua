@@ -1,7 +1,7 @@
 --[[[
 	Author @Andi Muhaxheri / KinqAndi
 	Date @03/07/21
-	Version: 0.3.7
+	Version: 0.3.8
 		Version Update Date: 9/02/23
 ]]
 
